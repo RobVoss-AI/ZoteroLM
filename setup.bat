@@ -1,13 +1,13 @@
 @echo off
 REM ============================================
-REM ZoteroLM — Quick Setup Script (Windows)
+REM CiteBridge — Quick Setup Script (Windows)
 REM ============================================
 REM Usage: Double-click this file, or run: setup.bat
 REM ============================================
 
 echo.
 echo ========================================
-echo   ZoteroLM Setup
+echo   CiteBridge Setup
 echo   Zotero ^<-^> NotebookLM Sync
 echo ========================================
 echo.
@@ -50,7 +50,7 @@ echo ========================================
 echo.
 echo Get your API key at: https://www.zotero.org/settings/keys
 echo 1. Click 'Create new private key'
-echo 2. Name it 'ZoteroLM'
+echo 2. Name it 'CiteBridge'
 echo 3. Check 'Allow library access' (read + write)
 echo 4. Save the key
 echo.
@@ -60,7 +60,7 @@ echo ========================================
 echo   Setup Complete!
 echo ========================================
 echo.
-echo To start ZoteroLM:
+echo To start CiteBridge:
 echo   1. .venv\Scripts\activate
 echo   2. streamlit run app.py
 echo   3. Enter your Zotero credentials in the sidebar

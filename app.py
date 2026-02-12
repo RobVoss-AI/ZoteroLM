@@ -1,5 +1,5 @@
 """
-ZoteroLM — Streamlit GUI
+CiteBridge — Streamlit GUI
 One-button bidirectional sync between Zotero and NotebookLM.
 
 Run with:  streamlit run app.py
@@ -25,7 +25,7 @@ setup_logging()
 
 # ── Page Config ──
 st.set_page_config(
-    page_title="ZoteroLM",
+    page_title="CiteBridge",
     page_icon="🔗",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -203,7 +203,7 @@ with st.sidebar:
 # MAIN AREA
 # ══════════════════════════════════════════
 
-st.markdown('<p class="main-header">🔗 ZoteroLM</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-header">🔗 CiteBridge</p>', unsafe_allow_html=True)
 st.markdown(
     '<p class="sub-header">Bidirectional Zotero ↔ NotebookLM Sync</p>',
     unsafe_allow_html=True,
@@ -481,7 +481,7 @@ if st.session_state.sync_log:
 st.divider()
 st.markdown(
     "<center>"
-    "<small>ZoteroLM v1.0 — Built by Rob Voss, Ph.D. / "
+    "<small>CiteBridge v1.0 — Built by Rob Voss, Ph.D. / "
     "<a href='https://www.vossaiconsulting.com'>Voss AI Consulting</a>"
     " &bull; <a href='https://www.robvoss.com'>robvoss.com</a></small><br>"
     "<small>Custom AI integrations for business, education, and finance</small>"

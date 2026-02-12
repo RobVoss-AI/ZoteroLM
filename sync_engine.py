@@ -176,7 +176,7 @@ class SyncEngine:
                 return result
 
             # Step 4: Process each item
-            download_dir = tempfile.mkdtemp(prefix="zoterolm_")
+            download_dir = tempfile.mkdtemp(prefix="citebridge_")
 
             for item in items:
                 try:

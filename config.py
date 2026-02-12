@@ -1,5 +1,5 @@
 """
-Configuration management for ZoteroLM.
+Configuration management for CiteBridge.
 Handles loading/saving settings and credentials.
 """
 
@@ -13,7 +13,7 @@ from typing import Optional, List
 logger = logging.getLogger(__name__)
 
 # Default config directory
-CONFIG_DIR = Path.home() / ".zoterolm"
+CONFIG_DIR = Path.home() / ".citebridge"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 DB_FILE = CONFIG_DIR / "sync_state.db"
 

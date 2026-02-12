@@ -186,7 +186,7 @@ class ZoteroClient:
         """Download PDF via Zotero API."""
         try:
             if not download_dir:
-                download_dir = tempfile.mkdtemp(prefix="zoterolm_")
+                download_dir = tempfile.mkdtemp(prefix="citebridge_")
 
             dest = Path(download_dir) / filename
             # pyzotero's file() method returns the binary content

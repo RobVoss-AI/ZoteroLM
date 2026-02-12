@@ -1,5 +1,5 @@
 """
-Utility functions for ZoteroLM.
+Utility functions for CiteBridge.
 """
 
 import hashlib

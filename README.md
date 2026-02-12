@@ -1,8 +1,8 @@
-# ZoteroLM
+# CiteBridge
 
 **One-button bidirectional sync between Zotero and Google NotebookLM.**
 
-ZoteroLM reads your Zotero collections, uploads PDFs directly to NotebookLM as organized notebooks, and pulls AI-generated notes back into Zotero — all with a single click.
+CiteBridge reads your Zotero collections, uploads PDFs directly to NotebookLM as organized notebooks, and pulls AI-generated notes back into Zotero — all with a single click.
 
 Built by [Voss AI Consulting](https://www.vossaiconsulting.com)
 
@@ -30,7 +30,7 @@ Built by [Voss AI Consulting](https://www.vossaiconsulting.com)
 
 ```bash
 # Unzip the project (or clone from repo)
-cd zoterolm
+cd citebridge
 
 # Mac/Linux:
 chmod +x setup.sh
@@ -43,7 +43,7 @@ chmod +x setup.sh
 **Or manual setup:**
 
 ```bash
-cd zoterolm
+cd citebridge
 python3 -m venv .venv
 source .venv/bin/activate     # Mac/Linux
 # .venv\Scripts\activate      # Windows
@@ -66,7 +66,7 @@ This opens Google sign-in in your browser. After authenticating, return to the t
 
 1. Go to [zotero.org/settings/keys](https://www.zotero.org/settings/keys)
 2. Click **"Create new private key"**
-3. Name it **"ZoteroLM"**
+3. Name it **"CiteBridge"**
 4. Under "Personal Library," check:
    - ✅ Allow library access
    - ✅ Allow write access
@@ -80,7 +80,7 @@ This opens Google sign-in in your browser. After authenticating, return to the t
 streamlit run app.py
 ```
 
-This opens the ZoteroLM dashboard in your browser (usually at `http://localhost:8501`).
+This opens the CiteBridge dashboard in your browser (usually at `http://localhost:8501`).
 
 ### Step 5: Configure & Sync
 
@@ -119,7 +119,7 @@ Zotero Collection          Google NotebookLM
 3. Creates Zotero notes tagged with `notebooklm-sync`
 
 **State tracking:**
-- Uses a local SQLite database (`~/.zoterolm/sync_state.db`)
+- Uses a local SQLite database (`~/.citebridge/sync_state.db`)
 - Tracks what's been synced with file hashes
 - Only syncs new or changed items
 
@@ -128,12 +128,12 @@ Zotero Collection          Google NotebookLM
 ## Project Structure
 
 ```
-zoterolm/
+citebridge/
 ├── app.py                  # Streamlit GUI (run this!)
 ├── requirements.txt        # Python dependencies
 ├── setup.sh / setup.bat    # One-line setup scripts
 ├── README.md               # This file
-└── zoterolm/               # Core library
+└── citebridge/               # Core library
     ├── config.py            # Configuration management
     ├── zotero_client.py     # Zotero API wrapper
     ├── notebooklm_client.py # NotebookLM API wrapper
@@ -175,7 +175,7 @@ zoterolm/
 
 ## Configuration
 
-All settings are saved in `~/.zoterolm/config.yaml`. You can edit this file directly or use the sidebar in the app.
+All settings are saved in `~/.citebridge/config.yaml`. You can edit this file directly or use the sidebar in the app.
 
 ```yaml
 zotero:
@@ -200,7 +200,7 @@ sync:
 
 - **NotebookLM API:** This app uses an unofficial library (`notebooklm-py`) that relies on undocumented Google APIs. It works well but may break if Google changes their internal APIs. If that happens, update the library and try again.
 - **Your data is safe:** The app only reads from Zotero (except when writing notes back). It never deletes or modifies your existing Zotero items.
-- **Auth tokens stay local:** All credentials are stored on your machine only (`~/.zoterolm/` and `~/.notebooklm/`).
+- **Auth tokens stay local:** All credentials are stored on your machine only (`~/.citebridge/` and `~/.notebooklm/`).
 
 ---
 

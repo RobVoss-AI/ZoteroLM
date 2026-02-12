@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================
-# ZoteroLM — Quick Setup Script
+# CiteBridge — Quick Setup Script
 # ============================================
-# This script sets up everything you need to run ZoteroLM.
+# This script sets up everything you need to run CiteBridge.
 # Usage:  chmod +x setup.sh && ./setup.sh
 # ============================================
 
@@ -10,7 +10,7 @@ set -e
 
 echo ""
 echo "========================================"
-echo "  ZoteroLM Setup"
+echo "  CiteBridge Setup"
 echo "  Zotero <-> NotebookLM Sync"
 echo "========================================"
 echo ""
@@ -70,7 +70,7 @@ echo "You need a Zotero API key. Get one at:"
 echo "  https://www.zotero.org/settings/keys"
 echo ""
 echo "1. Click 'Create new private key'"
-echo "2. Name it 'ZoteroLM'"
+echo "2. Name it 'CiteBridge'"
 echo "3. Check 'Allow library access' (read + write)"
 echo "4. Save the key"
 echo ""
@@ -83,7 +83,7 @@ echo "========================================"
 echo "  Setup Complete!"
 echo "========================================"
 echo ""
-echo "To start ZoteroLM:"
+echo "To start CiteBridge:"
 echo ""
 echo "  1. Activate the environment:"
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
