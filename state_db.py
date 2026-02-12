@@ -47,7 +47,7 @@ class SyncStateDB:
 
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            from .config import DB_FILE
+            from config import DB_FILE
             db_path = str(DB_FILE)
 
         self.db_path = db_path
