@@ -80,13 +80,20 @@ class ZoteroClient:
             collections = []
             for c in raw_collections:
                 data = c.get("data", c)
-                # meta is at top level of response, not inside data
-                meta = c.get("meta", {})
+                key = data.get("key", "")
+
+                # The Zotero API does NOT include numItems in collection
+                # metadata. We must call num_collectionitems() separately.
+                try:
+                    num_items = self.zot.num_collectionitems(key) if key else 0
+                except Exception:
+                    num_items = 0
+
                 collections.append(ZoteroCollection(
-                    key=data.get("key", ""),
+                    key=key,
                     name=data.get("name", "Untitled"),
                     parent_key=data.get("parentCollection", None) or None,
-                    num_items=meta.get("numItems", 0),
+                    num_items=num_items,
                 ))
             logger.info(f"Found {len(collections)} collections")
             return collections
