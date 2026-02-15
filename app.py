@@ -146,13 +146,32 @@ with st.sidebar:
     # ── NotebookLM Settings ──
     with st.expander("🟣 NotebookLM Connection", expanded=not NotebookLMClient.is_authenticated()):
         st.markdown(
-            "NotebookLM authentication uses your Google account via browser.\n\n"
-            "**First-time setup:** Run this command in your terminal:"
+            "NotebookLM authentication uses your Google account cookies.\n\n"
+            "**Option A — Local usage:** Run `notebooklm login` in your terminal.\n\n"
+            "**Option B — Streamlit Cloud:** Add `NOTEBOOKLM_AUTH_JSON` to your "
+            "[app secrets](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management) "
+            "with the contents of `~/.notebooklm/storage_state.json`."
         )
-        st.code("notebooklm login", language="bash")
-        st.markdown(
-            "This opens a browser window for Google sign-in. "
-            "After authenticating, return here and click the button below."
+
+        # Auth diagnostics
+        _has_env = bool(os.environ.get("NOTEBOOKLM_AUTH_JSON", "").strip())
+        _has_st_secret = False
+        try:
+            _secret = st.secrets.get("NOTEBOOKLM_AUTH_JSON", "")
+            _has_st_secret = bool(_secret and str(_secret).strip())
+        except Exception:
+            pass
+        _has_file = False
+        try:
+            from notebooklm.paths import get_storage_path as _gsp
+            _has_file = _gsp().exists()
+        except Exception:
+            pass
+
+        st.caption(
+            f"Auth sources: env var {'✅' if _has_env else '❌'} · "
+            f"Streamlit secret {'✅' if _has_st_secret else '❌'} · "
+            f"local file {'✅' if _has_file else '❌'}"
         )
 
         nlm_storage = st.text_input(
@@ -172,7 +191,7 @@ with st.sidebar:
                     st.success("✅ NotebookLM connected!")
                     st.session_state.nlm_connected = True
                 else:
-                    st.error("❌ Not authenticated — run `notebooklm login` first")
+                    st.error("❌ Not authenticated — check auth sources above")
                     st.session_state.nlm_connected = False
             except Exception as e:
                 st.error(f"❌ Error: {e}")

@@ -116,10 +116,33 @@ class NotebookLMClient:
 
     # ── Internal Helpers ──
 
+    @staticmethod
+    def _load_streamlit_secret():
+        """Try to load auth JSON from Streamlit secrets into env var.
+
+        Streamlit Cloud stores secrets in st.secrets, which doesn't
+        always automatically appear in os.environ.  This bridge
+        ensures notebooklm-py's AuthTokens.from_storage() can find it.
+        """
+        if os.environ.get("NOTEBOOKLM_AUTH_JSON", "").strip():
+            return  # Already set
+
+        try:
+            import streamlit as st
+            auth_json = st.secrets.get("NOTEBOOKLM_AUTH_JSON", "")
+            if auth_json and str(auth_json).strip():
+                os.environ["NOTEBOOKLM_AUTH_JSON"] = str(auth_json).strip()
+                logger.info("Loaded NotebookLM auth from Streamlit secrets")
+        except Exception:
+            pass  # Not running in Streamlit or no secret set
+
     def _ensure_auth(self):
         """Fetch auth tokens from storage (done once, then cached)."""
         if self._auth is not None:
             return
+
+        # Bridge Streamlit secrets → env var before auth lookup
+        self._load_streamlit_secret()
 
         async def _fetch_auth():
             from notebooklm.auth import AuthTokens
@@ -199,14 +222,23 @@ class NotebookLMClient:
 
     @staticmethod
     def is_authenticated() -> bool:
-        """Check if NotebookLM auth tokens exist (file or env var)."""
+        """Check if NotebookLM auth tokens exist (file, env var, or Streamlit secret)."""
         try:
-            # Check env var first (for Streamlit Cloud / CI)
+            # Check env var (for CI / direct deployment)
             auth_json = os.environ.get("NOTEBOOKLM_AUTH_JSON", "").strip()
             if auth_json:
                 return True
 
-            # Check file-based auth
+            # Check Streamlit secrets (for Streamlit Cloud)
+            try:
+                import streamlit as st
+                secret = st.secrets.get("NOTEBOOKLM_AUTH_JSON", "")
+                if secret and str(secret).strip():
+                    return True
+            except Exception:
+                pass
+
+            # Check file-based auth (local usage)
             from notebooklm.paths import get_storage_path
             return get_storage_path().exists()
         except Exception:
