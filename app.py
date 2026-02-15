@@ -371,7 +371,7 @@ else:
             nlm = NotebookLMClient(
                 st.session_state.config.notebooklm.storage_path or None,
             )
-            notebooks = nlm.list_notebooks()
+            notebooks = nlm.list_notebooks(include_source_counts=True)
 
             if not notebooks:
                 st.info("No notebooks found in NotebookLM.")
