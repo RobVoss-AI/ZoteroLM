@@ -4,10 +4,16 @@ adding sources, and reading notes.
 
 Uses the unofficial notebooklm-py library (async API).
 All public methods in this wrapper are synchronous for easy integration.
+
+Key design: Each API call creates a fresh async client within a proper
+async context manager, ensuring the httpx session is always opened and
+closed within the same event loop.  Auth tokens are fetched once and
+cached for reuse across calls.
 """
 
 import asyncio
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +22,8 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+
+# ── Data Classes (stable interface for rest of app) ──
 
 @dataclass
 class NLMNotebook:
@@ -34,7 +42,7 @@ class NLMSource:
     source_type: str = ""
     status: str = ""
     is_ready: bool = False
-    url: Optional[str] = None  # Original URL (web pages, YouTube, etc.)
+    url: Optional[str] = None
 
 
 @dataclass
@@ -44,7 +52,7 @@ class NLMSourceFull:
     title: str
     source_type: str = ""
     url: Optional[str] = None
-    content: str = ""  # Full text extracted by NotebookLM
+    content: str = ""
     char_count: int = 0
 
 
@@ -56,15 +64,23 @@ class NLMNote:
     content: str = ""
 
 
+# ── Async-to-Sync Bridge ──
+
 def _run_async(coro):
-    """Run an async coroutine synchronously."""
+    """Run an async coroutine synchronously.
+
+    Handles the case where we're inside an existing event loop
+    (e.g., Streamlit) by running in a separate thread with its
+    own event loop.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
 
     if loop and loop.is_running():
-        # We're inside an existing event loop (e.g., Streamlit)
+        # We're inside an existing event loop (e.g., Streamlit).
+        # Run in a thread with a fresh event loop.
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
             future = pool.submit(asyncio.run, coro)
@@ -73,71 +89,82 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
+# ── Main Client ──
+
 class NotebookLMClient:
     """
     High-level synchronous client for NotebookLM.
-    Wraps the async notebooklm-py library.
+    Wraps the async notebooklm-py library (v0.3.x).
+
+    Each API call creates a fresh async client connection within a
+    proper async context manager.  This avoids event-loop and session
+    lifecycle issues that arise when mixing sync/async code.
+
+    Auth tokens (cookies + CSRF + session ID) are fetched once from
+    storage and reused across calls.
     """
 
     def __init__(self, storage_path: Optional[str] = None):
         """
-        Initialize the NotebookLM client.
-
-        Auth tokens are loaded from storage (created by `notebooklm login`).
-
         Args:
             storage_path: Optional path to storage_state.json.
                           If None, uses default ~/.notebooklm/ location.
+                          Also supports NOTEBOOKLM_AUTH_JSON env var.
         """
-        self._client = None
         self._storage_path = storage_path
-        self._initialized = False
+        self._auth = None   # Cached AuthTokens (fetched once)
 
-    def _ensure_client(self):
-        """Lazily initialize the async client."""
-        if self._initialized:
+    # ── Internal Helpers ──
+
+    def _ensure_auth(self):
+        """Fetch auth tokens from storage (done once, then cached)."""
+        if self._auth is not None:
             return
 
+        async def _fetch_auth():
+            from notebooklm.auth import AuthTokens
+            path = Path(self._storage_path) if self._storage_path else None
+            return await AuthTokens.from_storage(path)
+
         try:
-            from notebooklm.auth import load_auth_from_storage, fetch_tokens, get_storage_path, AuthTokens
-            from notebooklm.client import NotebookLMClient as _AsyncClient
-
-            path = Path(self._storage_path) if self._storage_path else get_storage_path()
-            if not path.exists():
-                raise FileNotFoundError(
-                    f"NotebookLM auth not found at {path}. "
-                    "Run 'notebooklm login' first to authenticate."
-                )
-
-            # Load cookies from storage
-            cookies = load_auth_from_storage(path)
-            # Fetch CSRF and session tokens
-            csrf_token, session_id = _run_async(self._async_fetch_tokens(cookies))
-
-            auth = AuthTokens(
-                cookies=cookies,
-                csrf_token=csrf_token,
-                session_id=session_id,
-            )
-            self._client = _AsyncClient(auth=auth)
-            self._initialized = True
-            logger.info("NotebookLM client initialized successfully")
-
+            self._auth = _run_async(_fetch_auth())
+            logger.info("NotebookLM authentication tokens loaded successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize NotebookLM client: {e}")
+            logger.error(f"Failed to load NotebookLM auth: {e}")
             raise
 
-    @staticmethod
-    async def _async_fetch_tokens(cookies):
-        from notebooklm.auth import fetch_tokens
-        return await asyncio.to_thread(fetch_tokens, cookies)
+    def _call(self, async_fn):
+        """Execute an async operation with a properly managed client.
+
+        Creates a fresh NotebookLMClient (from notebooklm-py) for each
+        call, opening and closing the httpx session within the same
+        event loop.
+
+        Args:
+            async_fn: An async callable that takes the opened client
+                      and returns a result.
+        """
+        self._ensure_auth()
+
+        async def _execute():
+            from notebooklm.client import NotebookLMClient as _AsyncClient
+            async with _AsyncClient(self._auth) as client:
+                result = await async_fn(client)
+                # Capture any refreshed tokens
+                self._auth = client.auth
+                return result
+
+        return _run_async(_execute())
+
+    # ── Connection & Auth ──
 
     def test_connection(self) -> bool:
         """Test if we can connect to NotebookLM."""
         try:
-            self._ensure_client()
             notebooks = self.list_notebooks()
-            logger.info(f"NotebookLM connection OK — {len(notebooks)} notebooks found")
+            logger.info(
+                f"NotebookLM connection OK — {len(notebooks)} notebooks found"
+            )
             return True
         except Exception as e:
             logger.error(f"NotebookLM connection test failed: {e}")
@@ -150,9 +177,7 @@ class NotebookLMClient:
         This opens a browser for Google OAuth authentication.
         """
         try:
-            # Find the notebooklm CLI
             cli_path = "notebooklm"
-            # Check common locations
             for p in [
                 Path.home() / ".local" / "bin" / "notebooklm",
                 Path(sys.prefix) / "bin" / "notebooklm",
@@ -164,8 +189,8 @@ class NotebookLMClient:
             logger.info("Launching NotebookLM login flow...")
             result = subprocess.run(
                 [cli_path, "login"],
-                capture_output=False,  # Let user interact with browser
-                timeout=300,  # 5 minute timeout
+                capture_output=False,
+                timeout=300,
             )
             return result.returncode == 0
         except Exception as e:
@@ -174,45 +199,46 @@ class NotebookLMClient:
 
     @staticmethod
     def is_authenticated() -> bool:
-        """Check if NotebookLM auth tokens exist."""
+        """Check if NotebookLM auth tokens exist (file or env var)."""
         try:
-            from notebooklm.auth import get_storage_path
+            # Check env var first (for Streamlit Cloud / CI)
+            auth_json = os.environ.get("NOTEBOOKLM_AUTH_JSON", "").strip()
+            if auth_json:
+                return True
+
+            # Check file-based auth
+            from notebooklm.paths import get_storage_path
             return get_storage_path().exists()
         except Exception:
             return False
 
-    # ── Notebook Operations ──
+    # ══════════════════════════════════════════
+    #  Notebook Operations
+    # ══════════════════════════════════════════
 
     def list_notebooks(self) -> List[NLMNotebook]:
         """List all notebooks in the account."""
-        self._ensure_client()
+        async def _op(client):
+            return await client.notebooks.list()
 
-        async def _list():
-            return await self._client.notebooks.list()
-
-        raw = _run_async(_list())
-        notebooks = []
-        for nb in raw:
-            notebooks.append(NLMNotebook(
-                id=nb.id if hasattr(nb, "id") else str(nb),
-                title=nb.title if hasattr(nb, "title") else "Untitled",
-                sources_count=nb.sources_count if hasattr(nb, "sources_count") else 0,
-                created_at=str(nb.created_at) if hasattr(nb, "created_at") else "",
-            ))
-        return notebooks
+        raw = self._call(_op)
+        return [
+            NLMNotebook(
+                id=nb.id,
+                title=nb.title,
+                sources_count=getattr(nb, "sources_count", 0),
+                created_at=str(nb.created_at) if nb.created_at else "",
+            )
+            for nb in raw
+        ]
 
     def create_notebook(self, title: str) -> NLMNotebook:
         """Create a new notebook."""
-        self._ensure_client()
+        async def _op(client):
+            return await client.notebooks.create(title)
 
-        async def _create():
-            return await self._client.notebooks.create(title)
-
-        nb = _run_async(_create())
-        result = NLMNotebook(
-            id=nb.id if hasattr(nb, "id") else str(nb),
-            title=nb.title if hasattr(nb, "title") else title,
-        )
+        nb = self._call(_op)
+        result = NLMNotebook(id=nb.id, title=nb.title)
         logger.info(f"Created notebook: {result.title} ({result.id})")
         return result
 
@@ -232,7 +258,9 @@ class NotebookLMClient:
             return existing
         return self.create_notebook(title)
 
-    # ── Source Operations ──
+    # ══════════════════════════════════════════
+    #  Source Operations
+    # ══════════════════════════════════════════
 
     def add_pdf_source(self, notebook_id: str, file_path: str,
                        wait: bool = True, timeout: float = 120.0) -> NLMSource:
@@ -240,26 +268,24 @@ class NotebookLMClient:
         Upload a PDF file as a source to a notebook.
 
         Args:
-            notebook_id: The notebook to add the source to
-            file_path: Local path to the PDF file
-            wait: If True, wait for source to finish processing
-            timeout: Max seconds to wait for processing
+            notebook_id: The notebook to add the source to.
+            file_path: Local path to the PDF file.
+            wait: If True, wait for source to finish processing.
+            timeout: Max seconds to wait for processing.
         """
-        self._ensure_client()
-
-        async def _add():
-            return await self._client.sources.add_file(
+        async def _op(client):
+            return await client.sources.add_file(
                 notebook_id, file_path,
                 wait=wait, wait_timeout=timeout,
             )
 
-        src = _run_async(_add())
+        src = self._call(_op)
         result = NLMSource(
-            id=src.id if hasattr(src, "id") else str(src),
-            title=src.title if hasattr(src, "title") else Path(file_path).stem,
-            source_type=str(src.source_type) if hasattr(src, "source_type") else "pdf",
-            status=str(src.status) if hasattr(src, "status") else "",
-            is_ready=src.is_ready if hasattr(src, "is_ready") else False,
+            id=src.id,
+            title=src.title or Path(file_path).stem,
+            source_type=str(src.kind),
+            status=str(src.status),
+            is_ready=src.is_ready,
         )
         logger.info(f"Added source: {result.title} → notebook {notebook_id}")
         return result
@@ -267,37 +293,33 @@ class NotebookLMClient:
     def add_url_source(self, notebook_id: str, url: str,
                        wait: bool = True) -> NLMSource:
         """Add a URL as a source to a notebook."""
-        self._ensure_client()
-
-        async def _add():
-            return await self._client.sources.add_url(
+        async def _op(client):
+            return await client.sources.add_url(
                 notebook_id, url, wait=wait,
             )
 
-        src = _run_async(_add())
+        src = self._call(_op)
         return NLMSource(
-            id=src.id if hasattr(src, "id") else str(src),
-            title=src.title if hasattr(src, "title") else url,
-            source_type="web_page",
-            is_ready=src.is_ready if hasattr(src, "is_ready") else False,
+            id=src.id,
+            title=src.title or url,
+            source_type=str(src.kind),
+            is_ready=src.is_ready,
         )
 
     def list_sources(self, notebook_id: str) -> List[NLMSource]:
         """List all sources in a notebook."""
-        self._ensure_client()
+        async def _op(client):
+            return await client.sources.list(notebook_id)
 
-        async def _list():
-            return await self._client.sources.list(notebook_id)
-
-        raw = _run_async(_list())
+        raw = self._call(_op)
         return [
             NLMSource(
-                id=s.id if hasattr(s, "id") else str(s),
-                title=s.title if hasattr(s, "title") else "Untitled",
-                source_type=str(s.source_type) if hasattr(s, "source_type") else "",
-                status=str(s.status) if hasattr(s, "status") else "",
-                is_ready=s.is_ready if hasattr(s, "is_ready") else False,
-                url=s.url if hasattr(s, "url") else None,
+                id=s.id,
+                title=s.title or "Untitled",
+                source_type=str(s.kind),
+                status=str(s.status),
+                is_ready=s.is_ready,
+                url=s.url,
             )
             for s in raw
         ]
@@ -309,30 +331,26 @@ class NotebookLMClient:
         This is the key method for pulling sources into Zotero —
         it returns everything NotebookLM extracted from the original document.
         """
-        self._ensure_client()
+        async def _op(client):
+            return await client.sources.get_fulltext(notebook_id, source_id)
 
-        async def _get():
-            return await self._client.sources.get_fulltext(notebook_id, source_id)
-
-        ft = _run_async(_get())
+        ft = self._call(_op)
         return NLMSourceFull(
-            id=ft.source_id if hasattr(ft, "source_id") else source_id,
-            title=ft.title if hasattr(ft, "title") else "",
-            source_type=str(ft.source_type) if hasattr(ft, "source_type") else "",
-            url=ft.url if hasattr(ft, "url") else None,
-            content=ft.content if hasattr(ft, "content") else "",
-            char_count=ft.char_count if hasattr(ft, "char_count") else 0,
+            id=ft.source_id,
+            title=ft.title,
+            source_type=str(ft.kind),
+            url=ft.url,
+            content=ft.content,
+            char_count=ft.char_count,
         )
 
     def get_source_guide(self, notebook_id: str,
                           source_id: str) -> Dict[str, Any]:
         """Get the AI-generated study guide for a source."""
-        self._ensure_client()
+        async def _op(client):
+            return await client.sources.get_guide(notebook_id, source_id)
 
-        async def _get():
-            return await self._client.sources.get_guide(notebook_id, source_id)
-
-        return _run_async(_get())
+        return self._call(_op)
 
     def get_all_sources_with_content(self, notebook_id: str
                                       ) -> List[NLMSourceFull]:
@@ -353,7 +371,9 @@ class NotebookLMClient:
                 if not full.source_type and src.source_type:
                     full.source_type = src.source_type
                 results.append(full)
-                logger.info(f"Got fulltext for: {full.title} ({full.char_count} chars)")
+                logger.info(
+                    f"Got fulltext for: {full.title} ({full.char_count} chars)"
+                )
             except Exception as e:
                 logger.error(f"Failed to get fulltext for {src.title}: {e}")
                 # Still include with basic info
@@ -364,30 +384,21 @@ class NotebookLMClient:
 
         return results
 
-    # ── Note Operations ──
+    # ══════════════════════════════════════════
+    #  Note Operations
+    # ══════════════════════════════════════════
 
     def list_notes(self, notebook_id: str) -> List[NLMNote]:
         """List all notes in a notebook."""
-        self._ensure_client()
+        async def _op(client):
+            return await client.notes.list(notebook_id)
 
-        async def _list():
-            return await self._client.notes.list(notebook_id)
-
-        raw = _run_async(_list())
+        raw = self._call(_op)
         return [
             NLMNote(
-                id=n.id if hasattr(n, "id") else str(n),
-                title=n.title if hasattr(n, "title") else "Untitled",
-                content=n.content if hasattr(n, "content") else "",
+                id=n.id,
+                title=n.title,
+                content=n.content,
             )
             for n in raw
         ]
-
-    def get_notebook_summary(self, notebook_id: str) -> str:
-        """Get AI-generated summary for a notebook."""
-        self._ensure_client()
-
-        async def _summary():
-            return await self._client.notebooks.get_summary(notebook_id)
-
-        return _run_async(_summary())
