@@ -76,16 +76,17 @@ class ZoteroClient:
     def get_collections(self) -> List[ZoteroCollection]:
         """Get all collections in the library."""
         try:
-            raw_collections = self.zot.collections()
+            raw_collections = self.zot.everything(self.zot.collections())
             collections = []
             for c in raw_collections:
                 data = c.get("data", c)
+                # meta is at top level of response, not inside data
+                meta = c.get("meta", {})
                 collections.append(ZoteroCollection(
                     key=data.get("key", ""),
                     name=data.get("name", "Untitled"),
                     parent_key=data.get("parentCollection", None) or None,
-                    num_items=data.get("meta", {}).get("numItems", 0)
-                        if "meta" in c else 0,
+                    num_items=meta.get("numItems", 0),
                 ))
             logger.info(f"Found {len(collections)} collections")
             return collections
@@ -96,14 +97,19 @@ class ZoteroClient:
     def get_collection_items(self, collection_key: str) -> List[ZoteroItem]:
         """
         Get all items in a specific collection.
-        Returns only top-level items (not attachments).
+        Returns only top-level items (not attachments/notes).
+        Uses everything() for full pagination beyond 100-item default.
         """
         try:
-            raw_items = self.zot.collection_items(collection_key)
+            # Use collection_items_top to skip child attachments/notes,
+            # and everything() to paginate beyond the 100-item default
+            raw_items = self.zot.everything(
+                self.zot.collection_items_top(collection_key)
+            )
             items = []
             for item in raw_items:
                 data = item.get("data", item)
-                # Skip attachments and notes at top level
+                # Double-check: skip any remaining attachment/note types
                 if data.get("itemType") in ("attachment", "note"):
                     continue
 
