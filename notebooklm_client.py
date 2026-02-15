@@ -248,21 +248,53 @@ class NotebookLMClient:
     #  Notebook Operations
     # ══════════════════════════════════════════
 
-    def list_notebooks(self) -> List[NLMNotebook]:
-        """List all notebooks in the account."""
-        async def _op(client):
-            return await client.notebooks.list()
+    def list_notebooks(self, include_source_counts: bool = False) -> List[NLMNotebook]:
+        """List all notebooks in the account.
 
-        raw = self._call(_op)
-        return [
-            NLMNotebook(
-                id=nb.id,
-                title=nb.title,
-                sources_count=getattr(nb, "sources_count", 0),
-                created_at=str(nb.created_at) if nb.created_at else "",
-            )
-            for nb in raw
-        ]
+        Args:
+            include_source_counts: If True, fetches the actual source count
+                for each notebook (slower but accurate).  The NotebookLM API
+                does not include source counts in notebook metadata, so this
+                requires one extra API call per notebook.
+        """
+        if include_source_counts:
+            # Single client session for all calls (much faster)
+            async def _op_with_counts(client):
+                notebooks = await client.notebooks.list()
+                results = []
+                for nb in notebooks:
+                    try:
+                        sources = await client.sources.list(nb.id)
+                        count = len(sources)
+                    except Exception:
+                        count = 0
+                    results.append((nb, count))
+                return results
+
+            raw = self._call(_op_with_counts)
+            return [
+                NLMNotebook(
+                    id=nb.id,
+                    title=nb.title,
+                    sources_count=count,
+                    created_at=str(nb.created_at) if nb.created_at else "",
+                )
+                for nb, count in raw
+            ]
+        else:
+            async def _op(client):
+                return await client.notebooks.list()
+
+            raw = self._call(_op)
+            return [
+                NLMNotebook(
+                    id=nb.id,
+                    title=nb.title,
+                    sources_count=0,
+                    created_at=str(nb.created_at) if nb.created_at else "",
+                )
+                for nb in raw
+            ]
 
     def create_notebook(self, title: str) -> NLMNotebook:
         """Create a new notebook."""
